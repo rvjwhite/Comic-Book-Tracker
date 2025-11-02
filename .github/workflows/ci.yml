@@ -1,0 +1,195 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+
+    - name: Install Dependencies
+      working-directory: ./backend
+      run: npm ci
+
+    - name: Run Linter
+      working-directory: ./backend
+      run: npm run lint --if-present
+
+    - name: Run Tests
+      working-directory: ./backend
+      run: npm test --if-present
+      env:
+        NODE_ENV: test
+        MONGODB_URI: mongodb://localhost:27017/test
+        JWT_SECRET: test-secret
+
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install Dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Run Linter
+      working-directory: ./frontend
+      run: npm run lint --if-present
+
+    - name: Build Application
+      working-directory: ./frontend
+      run: npm run build
+      env:
+        VITE_API_URL: http://localhost:5000/api
+        VITE_CONTRACT_ADDRESS: '0x0000000000000000000000000000000000000000'
+        VITE_CHAIN_ID: 1337
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: frontend-build
+        path: frontend/dist
+        retention-days: 7
+
+  test-contracts:
+    name: Test Smart Contracts
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: contracts/package-lock.json
+
+    - name: Install Dependencies
+      working-directory: ./contracts
+      run: npm ci
+
+    - name: Compile Contracts
+      working-directory: ./contracts
+      run: npx hardhat compile
+
+    - name: Run Contract Tests
+      working-directory: ./contracts
+      run: npx hardhat test
+
+    - name: Run Coverage
+      working-directory: ./contracts
+      run: npx hardhat coverage || true
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Run npm audit on Backend
+      working-directory: ./backend
+      run: npm audit --audit-level=moderate || true
+
+    - name: Run npm audit on Frontend
+      working-directory: ./frontend
+      run: npm audit --audit-level=moderate || true
+
+    - name: Run npm audit on Contracts
+      working-directory: ./contracts
+      run: npm audit --audit-level=moderate || true
+
+  lint-contracts:
+    name: Lint Solidity Contracts
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18.x
+
+    - name: Install Solhint
+      run: npm install -g solhint
+
+    - name: Lint Contracts
+      working-directory: ./contracts
+      run: solhint 'contracts/**/*.sol' || true
+
+  build-docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend, test-contracts]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Build Backend Image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./backend
+        push: false
+        tags: comic-tracker-backend:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build Frontend Image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./frontend
+        push: false
+        tags: comic-tracker-frontend:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const Collection = require('../models/Collection');
+const db = require('../db');
 const { protect } = require('../middleware/auth');
 
 // @route   POST /api/nft/mint/:collectionId
@@ -10,7 +10,7 @@ router.post('/mint/:collectionId', protect, async (req, res) => {
   try {
     const { tokenId, contractAddress, transactionHash } = req.body;
 
-    const collection = await Collection.findOne({
+    const collection = await db.collections.findOne({
       _id: req.params.collectionId,
       userId: req.user._id
     });
@@ -23,11 +23,10 @@ router.post('/mint/:collectionId', protect, async (req, res) => {
       return res.status(400).json({ error: 'This item is already minted as NFT' });
     }
 
-    // Update collection with NFT information
-    collection.nftTokenId = tokenId;
-    collection.nftContractAddress = contractAddress;
-    collection.isMintedAsNFT = true;
-    await collection.save();
+    await db.collections.update(
+      { _id: req.params.collectionId },
+      { $set: { nftTokenId: tokenId, nftContractAddress: contractAddress, isMintedAsNFT: true, updatedAt: new Date() } }
+    );
 
     res.json({
       success: true,
@@ -47,7 +46,7 @@ router.post('/transfer', protect, async (req, res) => {
   try {
     const { tokenId, contractAddress, newOwner, transactionHash } = req.body;
 
-    const collection = await Collection.findOne({
+    const collection = await db.collections.findOne({
       nftTokenId: tokenId,
       nftContractAddress: contractAddress,
       userId: req.user._id
@@ -80,15 +79,16 @@ router.get('/verify/:tokenId', async (req, res) => {
   try {
     const { contractAddress } = req.query;
 
-    const collection = await Collection.findOne({
-      nftTokenId: req.params.tokenId,
+    const collection = await db.collections.findOne({
+      nftTokenId: parseInt(req.params.tokenId),
       nftContractAddress: contractAddress
-    }).populate('userId', 'username walletAddress');
+    });
 
     if (!collection) {
       return res.status(404).json({ error: 'NFT not found' });
     }
 
+    const owner = await db.users.findOne({ _id: collection.userId });
     res.json({
       success: true,
       nft: {
@@ -100,8 +100,8 @@ router.get('/verify/:tokenId', async (req, res) => {
         condition: collection.condition,
         imageUrl: collection.imageUrl,
         owner: {
-          username: collection.userId.username,
-          walletAddress: collection.userId.walletAddress
+          username: owner ? owner.username : 'Unknown',
+          walletAddress: owner ? owner.walletAddress : null
         },
         mintedAt: collection.updatedAt
       }
@@ -118,8 +118,8 @@ router.get('/metadata/:tokenId', async (req, res) => {
   try {
     const { contractAddress } = req.query;
 
-    const collection = await Collection.findOne({
-      nftTokenId: req.params.tokenId,
+    const collection = await db.collections.findOne({
+      nftTokenId: parseInt(req.params.tokenId),
       nftContractAddress: contractAddress
     });
 
@@ -179,7 +179,7 @@ router.get('/metadata/:tokenId', async (req, res) => {
 // @access  Private
 router.get('/user/minted', protect, async (req, res) => {
   try {
-    const mintedCollections = await Collection.find({
+    const mintedCollections = await db.collections.find({
       userId: req.user._id,
       isMintedAsNFT: true
     });

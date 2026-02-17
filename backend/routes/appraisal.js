@@ -1,8 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const Collection = require('../models/Collection');
+const db = require('../db');
 const { protect } = require('../middleware/auth');
-const axios = require('axios');
 
 // Condition multipliers for appraisal
 const conditionMultipliers = {
@@ -21,7 +20,7 @@ const conditionMultipliers = {
 // @access  Private
 router.get('/:id', protect, async (req, res) => {
   try {
-    const collection = await Collection.findOne({
+    const collection = await db.collections.findOne({
       _id: req.params.id,
       userId: req.user._id
     });
@@ -78,16 +77,9 @@ router.post('/:id/update', protect, async (req, res) => {
   try {
     const { estimatedValue } = req.body;
 
-    const collection = await Collection.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        userId: req.user._id
-      },
-      {
-        currentValue: estimatedValue,
-        lastAppraised: new Date()
-      },
-      { new: true }
+    const collection = await db.collections.update(
+      { _id: req.params.id, userId: req.user._id },
+      { $set: { currentValue: estimatedValue, lastAppraised: new Date() } }
     );
 
     if (!collection) {
@@ -114,7 +106,7 @@ router.post('/batch', protect, async (req, res) => {
       return res.status(400).json({ error: 'Collection IDs array is required' });
     }
 
-    const collections = await Collection.find({
+    const collections = await db.collections.find({
       _id: { $in: collectionIds },
       userId: req.user._id
     });

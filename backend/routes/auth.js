@@ -1,151 +1,90 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
-const User = require('../models/User');
+const db = require('../db');
 const { protect } = require('../middleware/auth');
 
-// Generate JWT Token
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET || 'your-secret-key', {
-    expiresIn: process.env.JWT_EXPIRE || '7d'
-  });
-};
+const JWT_SECRET = process.env.JWT_SECRET || 'comic-secret-key-2024';
 
-// @route   POST /api/auth/register
-// @desc    Register a new user
-// @access  Public
+const generateToken = (id) =>
+  jwt.sign({ id }, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
+
+// POST /api/auth/register
 router.post('/register', [
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 6 }),
-  body('username').isLength({ min: 3 }).trim()
+  body('username').isLength({ min: 3 }).trim(),
 ], async (req, res) => {
-  // Validate input
   const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
   try {
     const { email, password, username, walletAddress } = req.body;
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
-    if (existingUser) {
-      return res.status(400).json({
-        error: 'User with this email or username already exists'
-      });
+    const existing = await db.users.findOne({ $or: [{ email }, { username }] });
+    if (existing) return res.status(400).json({ error: 'Email or username already taken' });
+
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(password, salt);
+
+    const user = await db.users.insert({
+      email, username, password: hashed,
+      walletAddress: walletAddress || null,
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const { password: _, ...safeUser } = user;
+    res.status(201).json({ success: true, token: generateToken(user._id), user: safeUser });
+  } catch (err) {
+    if (err.errorType === 'uniqueViolated') {
+      return res.status(400).json({ error: 'Email or username already taken' });
     }
-
-    // Create user
-    const user = await User.create({
-      email,
-      password,
-      username,
-      walletAddress
-    });
-
-    // Generate token
-    const token = generateToken(user._id);
-
-    res.status(201).json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        email: user.email,
-        username: user.username,
-        walletAddress: user.walletAddress
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// @route   POST /api/auth/login
-// @desc    Login user
-// @access  Public
+// POST /api/auth/login
 router.post('/login', [
   body('email').isEmail().normalizeEmail(),
-  body('password').exists()
+  body('password').exists(),
 ], async (req, res) => {
-  // Validate input
   const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
   try {
     const { email, password } = req.body;
+    const user = await db.users.findOne({ email });
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Check for user (include password for comparison)
-    const user = await User.findOne({ email }).select('+password');
-    if (!user) {
-      return res.status(401).json({
-        error: 'Invalid credentials'
-      });
-    }
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Check password
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(401).json({
-        error: 'Invalid credentials'
-      });
-    }
-
-    // Generate token
-    const token = generateToken(user._id);
-
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        email: user.email,
-        username: user.username,
-        walletAddress: user.walletAddress
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const { password: _, ...safeUser } = user;
+    res.json({ success: true, token: generateToken(user._id), user: safeUser });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// @route   GET /api/auth/me
-// @desc    Get current user
-// @access  Private
-router.get('/me', protect, async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      user: req.user
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// GET /api/auth/me
+router.get('/me', protect, (req, res) => {
+  res.json({ success: true, user: req.user });
 });
 
-// @route   PUT /api/auth/wallet
-// @desc    Update user wallet address
-// @access  Private
+// PUT /api/auth/wallet
 router.put('/wallet', protect, async (req, res) => {
   try {
     const { walletAddress } = req.body;
-
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { walletAddress },
-      { new: true, runValidators: true }
+    const updated = await db.users.update(
+      { _id: req.user._id },
+      { $set: { walletAddress, updatedAt: new Date() } }
     );
-
-    res.json({
-      success: true,
-      user
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const { password: _, ...safeUser } = updated;
+    res.json({ success: true, user: safeUser });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

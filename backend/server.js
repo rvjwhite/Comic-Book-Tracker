@@ -1,10 +1,12 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+
+// Initialize NeDB (embedded database — no external MongoDB needed)
+require('./db');
 
 const authRoutes = require('./routes/auth');
 const collectionRoutes = require('./routes/collections');
@@ -36,14 +38,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // Static files for uploads
 app.use('/uploads', express.static('uploads'));
-
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/comic-book-tracker', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-.then(() => console.log('MongoDB connected successfully'))
-.catch((err) => console.error('MongoDB connection error:', err));
 
 // Routes
 app.use('/api/auth', authRoutes);

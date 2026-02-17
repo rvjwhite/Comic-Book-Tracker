@@ -1,8 +1,5 @@
-const mongoose = require('mongoose');
-require('dotenv').config();
-
-const User = require('./models/User');
-const Collection = require('./models/Collection');
+const bcrypt = require('bcryptjs');
+const db = require('./db');
 
 const sampleComics = [
   {
@@ -139,22 +136,24 @@ const sampleComics = [
 
 async function seedDatabase() {
   try {
-    // Connect to MongoDB
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/comic-book-tracker');
-    console.log('Connected to MongoDB');
+    console.log('Using NeDB embedded database (no MongoDB required)');
 
     // Clear existing data
     console.log('Clearing existing data...');
-    await Collection.deleteMany({});
-    await User.deleteMany({});
+    await db.collections.remove({}, { multi: true });
+    await db.users.remove({}, { multi: true });
 
     // Create demo user
     console.log('Creating demo user...');
-    const demoUser = await User.create({
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash('demo123', salt);
+    const demoUser = await db.users.insert({
       username: 'demo',
       email: 'demo@example.com',
-      password: 'demo123',
-      walletAddress: null
+      password: hashed,
+      walletAddress: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
     console.log(`Demo user created: ${demoUser.email}`);
 
@@ -162,17 +161,28 @@ async function seedDatabase() {
     console.log('Creating sample comics...');
     const comics = sampleComics.map(comic => ({
       ...comic,
-      userId: demoUser._id
+      userId: demoUser._id,
+      isMintedAsNFT: false,
+      nftTokenId: null,
+      nftContractAddress: null,
+      imageUrl: null,
+      lastAppraised: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     }));
 
-    const createdComics = await Collection.insertMany(comics);
+    const createdComics = [];
+    for (const comic of comics) {
+      const created = await db.collections.insert(comic);
+      createdComics.push(created);
+    }
     console.log(`Created ${createdComics.length} sample comics`);
 
     // Display summary
     console.log('\n=== Seed Data Summary ===');
-    console.log(`Demo User Credentials:`);
-    console.log(`  Email: demo@example.com`);
-    console.log(`  Password: demo123`);
+    console.log('Demo User Credentials:');
+    console.log('  Email: demo@example.com');
+    console.log('  Password: demo123');
     console.log(`\nSample Comics: ${createdComics.length}`);
     console.log(`Total Collection Value: $${createdComics.reduce((sum, c) => sum + c.currentValue, 0).toLocaleString()}`);
     console.log('\n=== Seeding Complete ===\n');

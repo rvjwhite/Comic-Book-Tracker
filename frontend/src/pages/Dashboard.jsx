@@ -7,6 +7,8 @@ import {
   Typography,
   Box,
   CircularProgress,
+  Alert,
+  Button,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -14,22 +16,35 @@ import {
   AttachMoney,
   Token,
 } from '@mui/icons-material';
-import { getStats } from '../store/slices/collectionSlice';
-import { getCollections } from '../store/slices/collectionSlice';
+import { getStats, getCollections } from '../store/slices/collectionSlice';
 
 function Dashboard() {
   const dispatch = useDispatch();
-  const { stats, isLoading } = useSelector((state) => state.collection);
+  const { stats, isLoading, isError, message } = useSelector((state) => state.collection);
 
   useEffect(() => {
     dispatch(getStats());
     dispatch(getCollections());
   }, [dispatch]);
 
-  if (isLoading) {
+  if (isLoading && !stats) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
         <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (isError && !stats) {
+    return (
+      <Box>
+        <Typography variant="h4" gutterBottom>Dashboard</Typography>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {message || 'Failed to load dashboard data. Please check your connection.'}
+        </Alert>
+        <Button variant="contained" onClick={() => { dispatch(getStats()); dispatch(getCollections()); }}>
+          Retry
+        </Button>
       </Box>
     );
   }

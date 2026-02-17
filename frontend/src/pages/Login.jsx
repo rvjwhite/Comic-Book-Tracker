@@ -28,16 +28,17 @@ function Login() {
   );
 
   useEffect(() => {
-    if (isError) {
-      console.error(message);
-    }
-
     if (isSuccess || user) {
       navigate('/dashboard');
     }
+  }, [user, isSuccess, navigate]);
 
-    dispatch(reset());
-  }, [user, isError, isSuccess, message, navigate, dispatch]);
+  // Reset auth state on unmount so errors don't persist across pages
+  useEffect(() => {
+    return () => {
+      dispatch(reset());
+    };
+  }, [dispatch]);
 
   const onChange = (e) => {
     setFormData((prevState) => ({

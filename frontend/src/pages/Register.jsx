@@ -29,17 +29,20 @@ function Register() {
     (state) => state.auth
   );
 
-  useEffect(() => {
-    if (isError) {
-      console.error(message);
-    }
+  const [localError, setLocalError] = useState('');
 
+  useEffect(() => {
     if (isSuccess || user) {
       navigate('/dashboard');
     }
+  }, [user, isSuccess, navigate]);
 
-    dispatch(reset());
-  }, [user, isError, isSuccess, message, navigate, dispatch]);
+  // Reset auth state on unmount
+  useEffect(() => {
+    return () => {
+      dispatch(reset());
+    };
+  }, [dispatch]);
 
   const onChange = (e) => {
     setFormData((prevState) => ({
@@ -50,9 +53,10 @@ function Register() {
 
   const onSubmit = (e) => {
     e.preventDefault();
+    setLocalError('');
 
     if (password !== password2) {
-      alert('Passwords do not match');
+      setLocalError('Passwords do not match');
       return;
     }
 
@@ -72,9 +76,9 @@ function Register() {
           Register
         </Typography>
 
-        {isError && (
+        {(isError || localError) && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            {message}
+            {localError || message}
           </Alert>
         )}
 

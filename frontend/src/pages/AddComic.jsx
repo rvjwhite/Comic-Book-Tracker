@@ -10,6 +10,7 @@ import {
   Box,
   Grid,
   MenuItem,
+  Alert,
 } from '@mui/material';
 import { createCollection } from '../store/slices/collectionSlice';
 
@@ -19,6 +20,8 @@ const gradingCompanies = ['None', 'CGC', 'CBCS', 'PGX', 'Other'];
 function AddComic() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -43,6 +46,8 @@ function AddComic() {
 
   const onSubmit = async (e) => {
     e.preventDefault();
+    setError('');
+    setSubmitting(true);
 
     const collectionData = {
       ...formData,
@@ -51,8 +56,14 @@ function AddComic() {
       currentValue: parseFloat(formData.currentValue) || parseFloat(formData.purchasePrice) || 0,
     };
 
-    await dispatch(createCollection(collectionData));
-    navigate('/collection');
+    const result = await dispatch(createCollection(collectionData));
+    setSubmitting(false);
+
+    if (createCollection.fulfilled.match(result)) {
+      navigate('/collection');
+    } else {
+      setError(result.payload || 'Failed to add comic. Please try again.');
+    }
   };
 
   return (
@@ -61,6 +72,12 @@ function AddComic() {
         <Typography variant="h4" component="h1" gutterBottom>
           Add New Comic
         </Typography>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
 
         <Box component="form" onSubmit={onSubmit}>
           <Grid container spacing={2}>
@@ -202,8 +219,9 @@ function AddComic() {
                 fullWidth
                 variant="contained"
                 size="large"
+                disabled={submitting}
               >
-                Add to Collection
+                {submitting ? 'Adding...' : 'Add to Collection'}
               </Button>
             </Grid>
           </Grid>
